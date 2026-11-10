@@ -18,9 +18,25 @@ library(gridExtra)
 # ============================================================
 
 
+# Output folder (created in the working directory)
+output_dir <- "Figure"
+dir.create(output_dir, showWarnings = FALSE)
+
 # 1. Import data ---------------------------------
 
-raw_data_figure_6 <- read.table("~/mnt/Data-Work-CH/22_Plant_Production-CH/222.6_Mycologie_protected/Projets de recherche/32_Gale argentée et dartrose/2022 - Extraits antifongiques/ergosterol.csv", header = TRUE, sep=";", dec=".") |>
+# ------------------------------------------------------------
+# Data source: Zenodo (https://zenodo.org/records/24052059)
+# One wide table: chitin, glucan and ergosterol per Number x Treatment x Pathogen.
+# Empty cells mean "not measured" for that variable.
+# ------------------------------------------------------------
+zenodo_url  <- "https://zenodo.org/records/24052059/files/2026_chitin_glucan_ergosterol.csv?download=1"
+zenodo_file <- tempfile(fileext = ".csv")
+download.file(zenodo_url, zenodo_file, mode = "wb", quiet = TRUE)
+raw_data_zenodo <- read.table(zenodo_file, header = TRUE, sep = ";", dec = ".")
+
+
+raw_data_figure_6 <- raw_data_zenodo |>
+  select(Treatment, Pathogen, `Ergosterol..ug.mg.DW.`) |>
   rename(
     Ergosterol = `Ergosterol..ug.mg.DW.`
   ) |>
@@ -192,7 +208,7 @@ raw_plot_data <- raw_data_figure_6 |>
         "Curcuma"
       )
     )
-  )
+  ) # we just relevel, without droping any level
 
 # ------------------------------------------------------------
 # C. coccodes — Panel A
@@ -329,7 +345,7 @@ figure6 <- grid.arrange(
 )
 
 ggsave(
-  "~/mnt/Data-Work-CH/22_Plant_Production-CH/222.6_Mycologie_protected/Projets de recherche/32_Gale argentée et dartrose/2022 - Extraits antifongiques/2023 Figures JoF/Fig 6/figure_6.png",
+  file.path(output_dir, "figure_6.png"),
   plot = figure6,
   width = 12,
   height = 5.5,
@@ -346,16 +362,12 @@ ggsave(
 # 1. Import and prepare data
 # ------------------------------------------------------------
 
-raw_data_figure_7 <- read.table(
-  "~/mnt/Data-Work-CH/22_Plant_Production-CH/222.6_Mycologie_protected/Projets de recherche/32_Gale argentée et dartrose/2022 - Extraits antifongiques/2026_chitin_glucan.csv",
-  header = TRUE,
-  sep = ";",
-  dec = "."
-) |>
+raw_data_figure_7 <- raw_data_zenodo |>
+  # keep only rows with a chitin and/or glucan measurement
+  filter(!(is.na(chitin.ug.mg) & is.na(glucan.ug.mg))) |>
   mutate(
     Pathogen = trimws(as.character(Pathogen)),
-    Treatment = trimws(as.character(Treatment)),
-    Type = trimws(as.character(Type))
+    Treatment = trimws(as.character(Treatment))
   )
 
 # Standardize pathogen names before converting to factors
@@ -387,6 +399,13 @@ raw_data_figure_7 <- raw_data_figure_7 |>
       levels = pathogen_order_figure_7
     )
   )
+
+raw_data_figure_7 <- raw_data_figure_7 |>
+  mutate(
+    glucan.ug.mg = as.numeric(glucan.ug.mg),
+    chitin.ug.mg = as.numeric(chitin.ug.mg)
+  )
+
 
 # ------------------------------------------------------------
 # 2. Select observations for the four panels
@@ -507,14 +526,14 @@ run_wilcoxon_figure_7 <- function(
 # Run tests for glucan and chitin in C. coccodes
 stats_glucan_cc_figure_7 <- run_wilcoxon_figure_7(
   data = data_figure_7_cc,
-  outcome = "glucan.vs.control",
+  outcome = "glucan.ug.mg",
   pathogen_label = "C. coccodes",
   outcome_label = "Glucan"
 )
 
 stats_chitin_cc_figure_7 <- run_wilcoxon_figure_7(
   data = data_figure_7_cc,
-  outcome = "chitin.vs.control",
+  outcome = "chitin.ug.mg",
   pathogen_label = "C. coccodes",
   outcome_label = "Chitin"
 )
@@ -522,14 +541,14 @@ stats_chitin_cc_figure_7 <- run_wilcoxon_figure_7(
 # Run tests for glucan and chitin in H. solani spores
 stats_glucan_hs_figure_7 <- run_wilcoxon_figure_7(
   data = data_figure_7_hs,
-  outcome = "glucan.vs.control",
+  outcome = "glucan.ug.mg",
   pathogen_label = "H. solani (spores)",
   outcome_label = "Glucan"
 )
 
 stats_chitin_hs_figure_7 <- run_wilcoxon_figure_7(
   data = data_figure_7_hs,
-  outcome = "chitin.vs.control",
+  outcome = "chitin.ug.mg",
   pathogen_label = "H. solani (spores)",
   outcome_label = "Chitin"
 )
@@ -598,7 +617,11 @@ treatment_labels_figure_7 <- c(
   "Curcuma" = expression(italic("Curcuma"))
 )
 
+# ------------------------------------------------------------
 # Significance labels for C. coccodes glucan only
+# ------------------------------------------------------------
+
+
 significance_glucan_cc_figure_7 <- stats_glucan_cc_figure_7 |>
   filter(Comparison %in% c(
     "PDB vs Frangula",
@@ -606,11 +629,14 @@ significance_glucan_cc_figure_7 <- stats_glucan_cc_figure_7 |>
     "PDB+MeOH vs Curcuma"
   )) |>
   mutate(
-    Treatment = c("Frangula", "Rheum", "Curcuma"),
+    Treatment = case_when(
+      Comparison == "PDB vs Frangula" ~ "Frangula",
+      Comparison == "PDB+MeOH vs Rheum" ~ "Rheum",
+      Comparison == "PDB+MeOH vs Curcuma" ~ "Curcuma"
+    ),
     significant_glc = !is.na(p_adjusted) & p_adjusted < 0.05
   )
 
-# Add labels to the summary data
 summary_figure_7_cc <- summary_figure_7_cc |>
   left_join(
     significance_glucan_cc_figure_7 |>
@@ -637,6 +663,33 @@ make_plot_figure_7 <- function(
     show_significance = FALSE
 ) {
   
+  # Significance annotations (only if available)
+  if (show_significance &&
+      "significant_glc" %in% names(summary_data)) {
+    
+    significance_data <- summary_data |>
+      filter(significant_glc) |>
+      mutate(
+        star_y = .data[[mean_col]] + .data[[sd_col]] +
+          max(summary_data[[sd_col]], na.rm = TRUE) * 0.25
+      )
+    
+  } else {
+    significance_data <- summary_data[0, ]
+    significance_data$star_y <- numeric(0)
+  }
+  
+  # Determine suitable y-axis range from the raw observations
+  max_value <- max(
+    c(
+      raw_data[[value_col]],
+      summary_data[[mean_col]] + summary_data[[sd_col]]
+    ),
+    na.rm = TRUE
+  )
+  
+  y_upper <- ceiling(max_value * 1.20)
+  
   ggplot(
     summary_data,
     aes(
@@ -644,6 +697,7 @@ make_plot_figure_7 <- function(
       y = .data[[mean_col]]
     )
   ) +
+    
     geom_col(
       fill = "#599AD3",
       width = 0.70,
@@ -660,46 +714,51 @@ make_plot_figure_7 <- function(
       colour = "#4D4D4D",
       na.rm = TRUE
     ) +
+    
+   
+    # Significance stars, only when requested
     {
       if (show_significance) {
         geom_text(
-          data = summary_data,
+          data = significance_data,
           aes(
             x = Treatment,
-            y = mean_glucan + sd_glucan + 7,
-            label = ifelse(significant_glc, "*", "")
+            y = star_y,
+            label = "*"
           ),
           inherit.aes = FALSE,
           size = 6,
           fontface = "bold",
-          colour = "black",
           na.rm = TRUE
         )
       }
     } +
     
-       labs(
+    scale_x_discrete(
+      limits = treatment_order_figure_7,
+      labels = treatment_labels_figure_7
+    ) +
+    
+    scale_y_continuous(
+      breaks = scales::pretty_breaks(n = 5),
+      expand = expansion(mult = c(0, 0.03))
+    ) +
+    
+    coord_cartesian(
+      ylim = c(0, y_upper),
+      clip = "off"
+    ) +
+    
+    labs(
       title = pathogen_title,
       tag = panel_letter,
       x = "Treatment",
       y = y_label
     ) +
     
-      scale_x_discrete(
-      limits = treatment_order_figure_7,
-      labels = treatment_labels_figure_7
-    ) +
-    
-    scale_y_continuous(
-      breaks = seq(0, 400, 100),
-      expand = expansion(mult = c(0, 0.03))
-    ) +
-    
-    # Set a consistent plotting window without deleting observations
-    coord_cartesian(ylim = c(0, 400)) +
-    
     theme_figure_7
 }
+
 
 # ------------------------------------------------------------
 # 7. Create the four panels
@@ -711,8 +770,8 @@ plot_glucan_cc_figure_7 <- make_plot_figure_7(
   raw_data = data_figure_7_cc,
   mean_col = "mean_glucan",
   sd_col = "sd_glucan",
-  value_col = "glucan.vs.control",
-  y_label = "Glucan equivalents\n(% control)",
+  value_col = "glucan.ug.mg",
+  y_label = "Glucan content (µg mg\u207B\u00B9)",
   pathogen_title = "",
   panel_letter = "A",
   show_significance = TRUE
@@ -724,8 +783,8 @@ plot_glucan_hs_figure_7 <- make_plot_figure_7(
   raw_data = data_figure_7_hs,
   mean_col = "mean_glucan",
   sd_col = "sd_glucan",
-  value_col = "glucan.vs.control",
-  y_label = "Glucan equivalents\n(% control)",
+  value_col = "glucan.ug.mg",
+  y_label = "Glucan content (µg mg\u207B\u00B9)",
   pathogen_title = "",
   panel_letter = "B"
 )
@@ -736,8 +795,8 @@ plot_chitin_cc_figure_7 <- make_plot_figure_7(
   raw_data = data_figure_7_cc,
   mean_col = "mean_chitin",
   sd_col = "sd_chitin",
-  value_col = "chitin.vs.control",
-  y_label = "Glucosamine equivalents\n(% control)",
+  value_col = "chitin.ug.mg",
+  y_label = "Chitin content (µg mg\u207B\u00B9)",
   pathogen_title = "",
   panel_letter = "C"
 )
@@ -748,15 +807,16 @@ plot_chitin_hs_figure_7 <- make_plot_figure_7(
   raw_data = data_figure_7_hs,
   mean_col = "mean_chitin",
   sd_col = "sd_chitin",
-  value_col = "chitin.vs.control",
-  y_label = "Glucosamine equivalents\n(% control)",
+  value_col = "chitin.ug.mg",
+  y_label = "Chitin content (µg mg\u207B\u00B9)",
   pathogen_title = "",
   panel_letter = "D"
 )
 
 
+
 # ------------------------------------------------------------
-# 7. Combine and export Figure 7
+# 8. Combine and export Figure 7
 # ------------------------------------------------------------
 
 figure_7 <- grid.arrange(
@@ -769,7 +829,7 @@ figure_7 <- grid.arrange(
 )
 
 ggsave(
-  "~/mnt/Data-Work-CH/22_Plant_Production-CH/222.6_Mycologie_protected/Projets de recherche/32_Gale argentée et dartrose/2022 - Extraits antifongiques/2023 Figures JoF/Fig 7/figure_7.png",
+  file.path(output_dir, "figure_7.png"),
   plot = figure_7,
   width = 12,
   height = 9,
@@ -787,8 +847,13 @@ ggsave(
 # 1. Import data
 # ------------------------------------------------------------
 
+# Data source: Zenodo (https://zenodo.org/records/24111700)
+zenodo_url_figure_8  <- "https://zenodo.org/records/24111700/files/postharvest_data_analysis.csv?download=1"
+zenodo_file_figure_8 <- tempfile(fileext = ".csv")
+download.file(zenodo_url_figure_8, zenodo_file_figure_8, mode = "wb", quiet = TRUE)
+
 raw_data_001 <- read.table(
-  "~/mnt/Data-Work-CH/22_Plant_Production-CH/222.6_Mycologie_protected/Projets de recherche/32_Gale argentée et dartrose/2022 - Extraits antifongiques/data analysis/postharvest_data_analysis_ii.csv",
+  zenodo_file_figure_8,
   header = TRUE,
   sep = ";",
   dec = ".",
@@ -932,11 +997,7 @@ print(replication_figure_8)
 # 4. Prepare the two pathogen datasets
 # ------------------------------------------------------------
 
-# C. coccodes: 
-#exclude 2018 due to high silver scurf:
-#data_figure_8_cc <- data_units_figure_8 |>
-  #filter(Year != 2018, !is.na(Cc.Tax))
-
+# C. coccodes:
 data_figure_8_cc <- data_units_figure_8 |>
   filter(!is.na(Cc.Tax))
 
@@ -1010,8 +1071,8 @@ model_figure_8_hs <- lm(
 )
 
 # Estimated product means, adjusted for year
-emm_cc <- emmeans(model_figure_8_cc, ~ Product)
-emm_hs <- emmeans(model_figure_8_hs, ~ Product)
+emm_cc <- emmeans::emmeans(model_figure_8_cc, ~ Product)
+emm_hs <- emmeans::emmeans(model_figure_8_hs, ~ Product)
 
 # Planned comparisons against Water, with Holm correction
 contrasts_vs_water <- list(
@@ -1021,13 +1082,13 @@ contrasts_vs_water <- list(
   "Rheum vs Water"    = c(-1, 0, 0, 0, 1)
 )
 
-stats_cc <- contrast(
+stats_cc <- emmeans::contrast(
   emm_cc,
   method = contrasts_vs_water,
   adjust = "holm"
 )
 
-stats_hs <- contrast(
+stats_hs <- emmeans::contrast(
   emm_hs,
   method = contrasts_vs_water,
   adjust = "holm"
@@ -1101,30 +1162,64 @@ make_plot_figure_8 <- function(
     y_label,
     pathogen_title,
     panel_letter,
-    stats) {
-  
-  # Keep only significant comparisons for annotation
-  significance_data <- stats |>
-    dplyr::filter(significance != "") |>
-    dplyr::select(Product, significance)
-  
-  # Place stars above the highest observed unit value
-  star_positions <- data |>
-    dplyr::group_by(Product) |>
-    dplyr::summarise(
-      star_y = max(.data[[outcome]], na.rm = TRUE) + 5,
-      .groups = "drop"
+    stats = NULL,
+    show_significance = FALSE,
+    alpha_levels = c("***" = 0.001, "**" = 0.01, "*" = 0.05)) {
+
+  # Significance annotations are optional. Figure 8 as published shows
+  # none (show_significance = FALSE). When TRUE, stars are derived only from
+  # the Holm-adjusted p-values in `stats` (the emmeans contrasts vs Water);
+  # the product of each contrast is the level carrying the +1 coefficient in
+  # `contrasts_vs_water`, so no product names or labels are typed here.
+  if (show_significance) {
+
+    p_values <- as.data.frame(summary(stats))$p.value
+
+    # Label of the smallest threshold the p-value falls below; "" if none
+    stars <- vapply(
+      p_values,
+      function(p) {
+        passed <- names(alpha_levels)[p < alpha_levels]
+        if (length(passed) == 0) "" else passed[which.min(alpha_levels[passed])]
+      },
+      character(1)
     )
-  
-  significance_data <- significance_data |>
-    dplyr::left_join(star_positions, by = "Product") |>
-    dplyr::mutate(
-      Product = factor(
-        Product,
-        levels = product_order_figure_8
+
+    significance_data <- data.frame(
+      Product = levels(data$Product)[
+        vapply(contrasts_vs_water, which.max, integer(1))
+      ],
+      significance = stars,
+      stringsAsFactors = FALSE
+    ) |>
+      dplyr::filter(significance != "")
+
+    # Place stars above the highest observed unit value
+    star_positions <- data |>
+      dplyr::group_by(Product) |>
+      dplyr::summarise(
+        star_y = max(.data[[outcome]], na.rm = TRUE) + 5,
+        .groups = "drop"
+      ) |>
+      dplyr::mutate(Product = as.character(Product))
+
+    significance_data <- significance_data |>
+      dplyr::left_join(star_positions, by = "Product") |>
+      dplyr::mutate(
+        Product = factor(
+          Product,
+          levels = product_order_figure_8
+        )
       )
+
+  } else {
+    significance_data <- data.frame(
+      Product = factor(character(0), levels = product_order_figure_8),
+      significance = character(0),
+      star_y = numeric(0)
     )
-  
+  }
+
   ggplot2::ggplot(
     data,
     ggplot2::aes(x = Product, y = .data[[outcome]])
@@ -1145,10 +1240,14 @@ make_plot_figure_8 <- function(
     ) +
     
     # Individual independent storage units; shape indicates year
+    # A fixed seed makes the horizontal jitter reproducible across runs
     ggplot2::geom_jitter(
       ggplot2::aes(shape = factor(Year)),
-      width = 0.09,
-      height = 0,
+      position = ggplot2::position_jitter(
+        width = 0.09,
+        height = 0,
+        seed = 2026
+      ),
       size = 2.5,
       fill = "black",
       colour = "black",
@@ -1212,7 +1311,8 @@ plot_figure_8_cc <- make_plot_figure_8(
   y_label = "Black dot disease severity (%)",
   pathogen_title = expression(italic("")),
   panel_letter = "A",
-  stats = stats_figure_8_cc
+  stats = stats_cc,
+  show_significance = TRUE
 )
 
 plot_figure_8_hs <- make_plot_figure_8(
@@ -1221,7 +1321,8 @@ plot_figure_8_hs <- make_plot_figure_8(
   y_label = "Silver scurf disease severity (%)",
   pathogen_title = expression(italic("")),
   panel_letter = "B",
-  stats = stats_figure_8_hs
+  stats = stats_hs,
+  show_significance = TRUE
 )
 
 # Display the panels
@@ -1320,7 +1421,7 @@ table_S3b <- bind_rows(
 # ------------------------------------------------------------
 
 ggsave(
-  "~/mnt/Data-Work-CH/22_Plant_Production-CH/222.6_Mycologie_protected/Projets de recherche/32_Gale argentée et dartrose/2022 - Extraits antifongiques/2023 Figures JoF/Fig 8/figure_8.png",
+  file.path(output_dir, "figure_8.png"),
   plot = figure_8,
   width = 12,
   height = 5.5,
@@ -1330,14 +1431,14 @@ ggsave(
 
 write.csv(
   table_S3a,
-  "~/mnt/Data-Work-CH/22_Plant_Production-CH/222.6_Mycologie_protected/Projets de recherche/32_Gale argentée et dartrose/2022 - Extraits antifongiques/2023 Figures JoF/Supplementary_Table_S3a_Descriptive.csv",
+  file.path(output_dir, "Supplementary_Table_S3a_Descriptive.csv"),
   row.names = FALSE,
   na = ""
 )
 
 write.csv(
   table_S3b,
-  "~/mnt/Data-Work-CH/22_Plant_Production-CH/222.6_Mycologie_protected/Projets de recherche/32_Gale argentée et dartrose/2022 - Extraits antifongiques/2023 Figures JoF/Supplementary_Table_S3b_Model_comparisons.csv",
+  file.path(output_dir, "Supplementary_Table_S3b_Model_comparisons.csv"),
   row.names = FALSE,
   na = ""
 )

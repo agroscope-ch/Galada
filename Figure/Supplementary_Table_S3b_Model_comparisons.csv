@@ -1,0 +1,9 @@
+"Pathogen","comparison","estimate","SE","df","CI_lower","CI_upper","p_Holm"
+"Black dot","Amistar vs Water",-0.32,1.85,24,-5.32,4.69,1
+"Black dot","Curcuma vs Water",1.69,1.96,24,-3.6,6.98,1
+"Black dot","Frangula vs Water",-2.37,1.96,24,-7.66,2.92,0.952
+"Black dot","Rheum vs Water",-1.71,1.96,24,-7.01,3.58,1
+"Silver scurf","Amistar vs Water",-11.98,3.18,24,-20.58,-3.39,0.00381
+"Silver scurf","Curcuma vs Water",-10.56,3.37,24,-19.66,-1.47,0.0134
+"Silver scurf","Frangula vs Water",-3.58,3.37,24,-12.67,5.51,0.596
+"Silver scurf","Rheum vs Water",0.02,3.37,24,-9.08,9.11,0.996
